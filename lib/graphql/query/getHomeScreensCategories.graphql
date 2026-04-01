@@ -1,0 +1,9 @@
+query getHomeScreensCategories {
+  homeScreens {
+    id
+    category {
+      id
+      name
+    }
+  }
+}

@@ -1,51 +1,74 @@
-このリポジトリをForkして、映画情報を提供するサービスを作ってください。ページは、トップページとカテゴリ詳細ページと映画情報詳細ページの3つを作成してください。
+# Samansa Film Browser
 
-**トップページ**ではカテゴリごとに映画サムネイルが並んでおり、カテゴリごとにカテゴリ詳細ページへのリンクをつけてください。また映画サムネイルをクリックすると詳細ページに遷移する形にしてください。
+A film browsing app built against the [Samansa GraphQL API](https://develop.api.samansa.com/graphiql). Three pages: home, category, and film detail.
 
-**カテゴリ詳細ページ**では映画サムネイルが並んでおり、トップページ同様に映画サムネイルをクリックすると詳細ページに遷移する形にしてください。
+## Pages
 
-**映画情報詳細ページ**では、映画のタイトルと説明とlike数を表示し、右サイドバーで「コメント一覧」を表示してください。
+- **Home** — film thumbnails grouped by category; first 3 categories pre-fetched server-side, the rest loaded lazily on the client
+- **Category** (`/category/[id]`) — full film grid for a single category
+- **Film detail** (`/film/[id]`) — title, description, like count, and a comments sidebar
 
-以下のGraphQL Queryを使ってください（Queryの定義はすでに `lib/graphql/query` 以下に入っています）。
+## Stack
 
-詳細や他のQueryを知りたい場合は [https://develop.api.samansa.com/graphiql](https://develop.api.samansa.com/graphiql) を確認してください。
+| Technology          | Why                                                                                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Next.js 15**      | Server Components enable server-side GraphQL fetches with no client bundle cost; nested layouts simplify per-page structure                    |
+| **TanStack Query**  | Handles client-side data fetching, caching, and deduplication for lazily-loaded category sections; integrates cleanly with SSR-prefetched data |
+| **Native `fetch`**  | All GraphQL requests use Next.js's extended `fetch` with `next: { revalidate }` for built-in ISR caching — no extra GraphQL client needed      |
+| **Tailwind CSS v4** | Utility-first styling with no runtime overhead                                                                                                 |
+| **TypeScript**      | End-to-end type safety across GraphQL responses and component props                                                                            |
+| **Vitest + RTL**    | Fast unit tests for components using jsdom; co-located `.test.tsx` files                                                                       |
+| **Storybook 10**    | Isolated component development and visual testing; Storybook tests run via Vitest + Playwright in a real browser                               |
 
-- getHomeScreens
-  - 映画一覧ページで表示する映画カテゴリとその映画一覧を返す
-- getCategory
-  - 映画カテゴリIDを指定することで、そのカテゴリに含まれる映画一覧を返す
-- getOriginalVideo
-  - 映画IDを指定することで、その詳細情報を返す
-- getVideoComments
-  - 映画IDを指定することで、その映画へのコメント一覧を返す
+## Data flow
 
-実践的な工夫は大歓迎です！（例えば最初のgetHomeScreensでカテゴリのみ取得して、それぞれのカテゴリの映画は後から取得するようにするなど）
-
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+Browser request
+  └─ Server Component (app/**/page.tsx)
+       ├─ serverFetch() ──► Samansa GraphQL API
+       │    └─ Next.js caches response (ISR, revalidates every 1 hour)
+       └─ renders HTML, passes initialData to client components
+            └─ Client Component ('use client')
+                 └─ useInfiniteQuery(initialData)
+                      ├─ first render: instant (no network, uses initialData)
+                      └─ subsequent pages: serverFetch() called client-side
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Home page specifics:** the server fetches only category IDs first (`getHomeScreensCategories`), then pre-fetches films for the first 3 categories in parallel. Remaining categories are streamed in as the user scrolls, in batches of 3, using an IntersectionObserver sentinel.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+app/                      # Next.js App Router pages (Server Components)
+├── page.tsx              # Home — SSR category list + first 3 category films
+├── category/[id]/page.tsx
+├── film/[id]/page.tsx
+└── providers.tsx         # TanStack Query context (client component)
 
-## Learn More
+components/               # Reusable UI components
+├── HomePageClient.tsx    # Infinite-scroll category loader (client)
+├── CommentsList.tsx      # Paginated comments with "Load more" (client)
+├── FilmCard.tsx
+├── FilmGrid.tsx
+├── CategorySection.tsx
+└── *.test.tsx / *.stories.tsx  # Co-located tests and stories
 
-To learn more about Next.js, take a look at the following resources:
+lib/graphql/
+├── queries.ts            # Query strings, types, query keys, fetch functions
+├── serverFetch.ts        # fetch() wrapper with ISR revalidation
+└── query/*.graphql       # GraphQL operation definitions (used by codegen)
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Performance approach
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The home page fetches **only category IDs and names** first (`getHomeScreensCategories`), then pre-fetches films for the first 3 categories server-side for a fast initial render. Remaining categories are fetched client-side as they are needed, using TanStack Query for caching and deduplication.
+
+## Getting started
+
+```bash
+yarn dev       # development server at http://localhost:3000
+yarn test      # unit tests (RTL)
+yarn storybook # component explorer at http://localhost:6006
+yarn build     # production build
+yarn codegen   # regenerate GraphQL types after editing .graphql files
+```
